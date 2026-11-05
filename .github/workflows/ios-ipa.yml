@@ -98,19 +98,20 @@ jobs:
           sed -n '1,80p' project.yml 2>/dev/null || true
 
           echo "=== pbxproj 里的构建配置名 ==="
-          grep -oE 'name = [A-Za-z0-9_]+;' "$PBX" | sed 's/name = //; s/;//' | sort -u
+          # 注意：github macOS 运行器的 bash 是 3.2（Apple 未升级），
+          # 不能用 mapfile / 关联数组等 bash 4+ 语法。
+          CONF_LIST=$(grep -oE 'name = [A-Za-z0-9_]+;' "$PBX" | sed 's/name = //; s/;//' | sort -u)
+          echo "$CONF_LIST"
 
-          # 工程里的配置名可能是 release/Release/Debug 等，大小写不一定，
-          # 直接指定 "Release" 会被 xcodebuild 忽略并回退到默认配置。
-          mapfile -t CONFS < <(grep -oE 'name = [A-Za-z0-9_]+;' "$PBX" | sed 's/name = //; s/;//' | sort -u)
+          # project.yml 里定义的是小写 debug / release，
+          # 指定 -configuration Release 会被 xcodebuild 忽略并回退到 debug。
           CONF=""
-          for c in "${CONFS[@]}"; do
-            if [ "$c" = "Release" ]; then CONF="$c"; break; fi
-          done
-          if [ -z "$CONF" ]; then
-            for c in "${CONFS[@]}"; do
-              case "$c" in *elease*) CONF="$c"; break;; esac
-            done
+          if echo "$CONF_LIST" | grep -qx "release"; then
+            CONF="release"
+          elif echo "$CONF_LIST" | grep -qx "Release"; then
+            CONF="Release"
+          else
+            CONF=$(echo "$CONF_LIST" | grep -i "release" | head -1)
           fi
           echo "CHOSEN_CONFIG=${CONF:-<none>}"
 
