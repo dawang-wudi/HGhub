@@ -89,24 +89,44 @@ jobs:
 
       - name: Build (unsigned, Release)
         run: |
-          set -o pipefail
+          set -uo pipefail
           PROJ=$(ls -d src-tauri/gen/apple/*.xcodeproj | head -1)
           cd src-tauri/gen/apple
-          echo "=== project targets ==="
-          xcodebuild -project "$(basename "$PROJ")" -list -json
+          PBX="$(basename "$PROJ")/project.pbxproj"
+
+          echo "=== project.yml ==="
+          sed -n '1,80p' project.yml 2>/dev/null || true
+
+          echo "=== pbxproj 里的构建配置名 ==="
+          grep -oE 'name = [A-Za-z0-9_]+;' "$PBX" | sed 's/name = //; s/;//' | sort -u
+
+          # 工程里的配置名可能是 release/Release/Debug 等，大小写不一定，
+          # 直接指定 "Release" 会被 xcodebuild 忽略并回退到默认配置。
+          mapfile -t CONFS < <(grep -oE 'name = [A-Za-z0-9_]+;' "$PBX" | sed 's/name = //; s/;//' | sort -u)
+          CONF=""
+          for c in "${CONFS[@]}"; do
+            if [ "$c" = "Release" ]; then CONF="$c"; break; fi
+          done
+          if [ -z "$CONF" ]; then
+            for c in "${CONFS[@]}"; do
+              case "$c" in *elease*) CONF="$c"; break;; esac
+            done
+          fi
+          echo "CHOSEN_CONFIG=${CONF:-<none>}"
+
           TARGET=$(xcodebuild -project "$(basename "$PROJ")" -list -json | jq -r '.project.targets[0]')
           echo "TARGET=$TARGET"
 
-          # 注意：这里必须用 -target 而不是 -scheme。
-          # 工程里没有 .xcscheme 文件，scheme 由 xcodebuild 自动生成，
-          # 自动 scheme 固定用 Debug 配置，且会忽略 -configuration Release。
-          # Debug 下 tauri 的 xcode-script 会去找 dev server 地址文件
-          # （com.hghub.huangguo-server-addr），CI 里没有 → 直接 panic。
-          # -target 构建时 -configuration 才会真正生效。
+          if [ -z "$CONF" ]; then
+            echo "::warning::工程里没有 release 配置，退回 Debug（大概率仍会因缺 dev server 地址失败）"
+            CONF="Debug"
+          fi
+
+          set -o pipefail
           xcodebuild build \
             -project "$(basename "$PROJ")" \
             -target "$TARGET" \
-            -configuration Release \
+            -configuration "$CONF" \
             -sdk iphoneos \
             ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO \
