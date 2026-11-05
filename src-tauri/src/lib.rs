@@ -1,4 +1,5 @@
 mod api;
+mod lines;
 mod media;
 mod net;
 mod session;
@@ -13,6 +14,8 @@ pub fn run() {
         .setup(|app| {
             if let Ok(dir) = app.path().app_data_dir() {
                 let _ = std::fs::create_dir_all(&dir);
+                // 上次选择的线路（设置 → 线路）在启动时恢复
+                net::bind_base(&dir);
                 let state: tauri::State<Api> = app.state();
                 state.session.bind(dir);
             }
@@ -34,6 +37,12 @@ pub fn run() {
             api::app_boot,
             api::debug_log,
             api::net_diag,
+            api::line_state,
+            api::line_set,
+            api::line_mirrors,
+            api::line_probe,
+            api::check_update,
+            api::open_url,
             api::api_login,
             api::api_register,
             api::api_logout,

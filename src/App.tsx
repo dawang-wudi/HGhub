@@ -7,39 +7,52 @@ import Home from "./pages/Home";
 import Search, { RankPage } from "./pages/Search";
 import Category, { ChannelPage } from "./pages/Category";
 import Profile from "./pages/Profile";
+import SettingsPage from "./pages/Settings";
 import Feed from "./components/Feed";
 import { PostsPage, PostDetail } from "./pages/Posts";
 import LoginModal from "./components/LoginModal";
+import MobileDrawer from "./components/MobileDrawer";
 import { ToastHost } from "./components/ui";
 import { DesktopRail, DesktopTitleBar } from "./components/DesktopChrome";
 import ResizeHandles from "./components/ResizeHandles";
 import { IGrid, IGridF, IHome, IHomeF, ISearch, IUser, IUserF, Logo } from "./icons";
 
-/* ============ 底部标签栏（Android）—— 细瘦纯文字、低侵入 ============ */
+/* ============ 底部标签栏（移动端）—— 细瘦纯文字、低侵入 ============ */
 function TabBar() {
-  const { tab, setTab } = useStore();
+  const { tab, setTab, theme } = useStore();
   const items: { k: Tab; label: string }[] = [
     { k: "home", label: "首页" },
     { k: "search", label: "搜索" },
     { k: "category", label: "分类" },
     { k: "profile", label: "我的" },
   ];
-  const onVideo = tab === "home";
+  /* 细瘦纯文字分栏：只有选中项高亮，没有指示点。
+     首页是沉浸视频 → 底栏压深色；搜索/分类/我的 是浅色内容页 →
+     浅色主题下底栏跟着换成浅色，深色主题保持深色。 */
+  const overVideo = tab === "home";
+  const lightBar = !overVideo && theme === "light";
   return (
-    <nav className={`absolute bottom-0 inset-x-0 z-30 ${onVideo ? "" : "bg-s2/95 elev-up"}`}
-      style={{ paddingBottom: "var(--sab, 0px)" }}>
-      <div className="h-[42px] flex items-center px-1">
+    <nav className="hg-tabbar absolute bottom-0 inset-x-0 z-30"
+      style={{
+        paddingBottom: "var(--sab, 0px)",
+        background: lightBar ? "rgba(250, 250, 250, .97)" : overVideo ? "#000000" : "#141414",
+        borderTop: lightBar ? "1px solid rgba(0,0,0,.08)" : overVideo ? "none" : "1px solid rgba(255,255,255,.07)",
+        boxShadow: lightBar ? "0 -2px 14px rgba(0,0,0,.05)" : "none",
+      }}>
+      <div className="h-[40px] flex items-center px-1">
         {items.map(({ k, label }) => {
           const on = tab === k;
           return (
-            <button key={k} onClick={() => setTab(k)} className="flex-1 h-full flex flex-col items-center justify-center pressable">
-              <span className={`text-[13px] leading-none transition-colors duration-200 ${on
-                ? (onVideo ? "font-bold text-white" : "font-bold text-on")
-                : (onVideo ? "font-normal text-white/55" : "font-normal text-mut")}`}
-                style={onVideo ? { textShadow: "0 1px 8px rgba(0,0,0,.7)" } : undefined}>
+            <button key={k} onClick={() => setTab(k)} className="flex-1 h-full flex items-center justify-center pressable">
+              <span className="text-[12.5px] leading-none transition-colors duration-200"
+                style={{
+                  fontWeight: on ? 700 : 400,
+                  color: lightBar
+                    ? (on ? "var(--p-primary)" : "rgba(0,0,0,.45)")
+                    : (on ? "#ffffff" : "rgba(255,255,255,.6)"),
+                }}>
                 {label}
               </span>
-              <span className={`mt-[5px] w-[3px] h-[3px] rounded-full transition-opacity duration-200 ${on ? (onVideo ? "bg-white" : "bg-primary") : "opacity-0"}`} />
             </button>
           );
         })}
@@ -55,11 +68,13 @@ function StackPage({ page, onBack, wide, top, bottomInset }: {
   if (page.kind === "feed") {
     return (
       <Feed videoIds={page.videoIds} startIndex={page.index} title={page.title} kind={page.feedKind || "video"}
+        startEp={page.startEp} startTime={page.startTime}
         mode="context" active={top} bottomInset={bottomInset} onBack={onBack} />
     );
   }
   if (page.kind === "channel") return <ChannelPage cate={page.cate} name={page.name} onBack={onBack} wide={wide} />;
   if (page.kind === "ranks") return <RankPage onBack={onBack} wide={wide} />;
+  if (page.kind === "settings") return <SettingsPage onBack={onBack} wide={wide} />;
   if (page.kind === "posts") return <PostsPage onBack={onBack} wide={wide} />;
   if (page.kind === "post") return <PostDetail id={page.id} onBack={onBack} />;
   return null;
@@ -67,9 +82,9 @@ function StackPage({ page, onBack, wide, top, bottomInset }: {
 
 /* ============ 应用主体 ============ */
 function AppBody() {
-  const { platform, tab, setTab, stack, pop, loginOpen, setLoginOpen, fs } = useStore();
+  const { plat, mobile, tab, setTab, stack, pop, loginOpen, setLoginOpen, fs } = useStore();
   const mainRef = useRef<HTMLDivElement>(null);
-  const [wide, setWide] = useState(platform !== "android");
+  const [wide, setWide] = useState(!mobile);
   const [collapsed, setCollapsed] = useState(false);
 
   useLayoutEffect(() => {
@@ -102,14 +117,15 @@ function AppBody() {
 
   const vis = (k: Tab) => (tab === k ? "absolute inset-0" : "absolute inset-0 invisible pointer-events-none");
   const pageActive = stack.length === 0 && !loginOpen;
-  const bottomInset = platform === "android" ? (fs ? 0 : 48) : 14;
-  /* 栈页（从搜索/分类/我的进入的播放页、图文页）不显示底栏：
-     底栏会盖住评论抽屉的输入框，且这些页面本身是沉浸的 */
-  const stackInset = platform === "android" ? (fs ? 0 : 20) : 14;
+  const bottomInset = mobile ? (fs ? 0 : 40) : 14;
+  /* 栈页（从搜索/分类/我的进入的播放页、图文页）没有底栏，
+     底部只让出安全区。之前多留了 20px，视频底边会露出一条
+     「底栏」似的窄缝（底部的压暗渐变到不了屏幕最底）。 */
+  const stackInset = mobile ? 0 : 14;
 
   return (
-    <div className={`absolute inset-0 flex bg-canvas plat-${platform}`}>
-      {platform !== "android" && <DesktopRail collapsed={collapsed} />}
+    <div className={`absolute inset-0 flex bg-canvas plat-${plat}`}>
+      {!mobile && <DesktopRail collapsed={collapsed} />}
       <div ref={mainRef} className="relative flex-1 min-w-0 overflow-hidden win-main">
         <div className={vis("home")}><Home active={pageActive && tab === "home"} bottomInset={bottomInset} /></div>
         <div className={vis("search")}><Search active={pageActive && tab === "search"} wide={wide} /></div>
@@ -122,7 +138,7 @@ function AppBody() {
           </div>
         ))}
 
-        {platform === "android" && !fs && stack.length === 0 && <TabBar />}
+        {mobile && !fs && stack.length === 0 && <TabBar />}
       </div>
     </div>
   );
@@ -197,21 +213,23 @@ function ShellInner({ collapsed, theater }: { collapsed: boolean; theater: boole
   );
 }
 
-/* ============ 移动端（无壳） ============ */
+/* ============ 移动端（无壳：Android / iOS） ============ */
 function MobileShell() {
+  const { plat } = useStore();
   return (
-    <div className="absolute inset-0 flex flex-col bg-canvas plat-android"
+    <div className={`absolute inset-0 flex flex-col bg-canvas plat-${plat}`}
       style={{ "--sat": "max(env(safe-area-inset-top), 8px)", "--sab": "max(env(safe-area-inset-bottom), 6px)" } as React.CSSProperties}>
       <div className="relative flex-1 min-h-0">
         <AppBody />
       </div>
+      <MobileDrawer />
     </div>
   );
 }
 
 /* ============ 入口 ============ */
 export default function App() {
-  const { platform, loginOpen, setLoginOpen, tab, setTab, stack, pop, fs, setFs } = useStore();
+  const { platform, mobile, loginOpen, setLoginOpen, tab, setTab, stack, pop, fs, setFs } = useStore();
 
   /* —— 安卓硬件返回键 ——
      层级：全屏 → 面板/弹层 → 登录框 → 页面栈 → 回首页 → 退出应用。
@@ -256,7 +274,7 @@ export default function App() {
 
   return (
     <>
-      {platform === "android" ? <MobileShell /> : <DesktopShell />}
+      {mobile ? <MobileShell /> : <DesktopShell />}
       <LoginModal />
       <ToastHost />
       {/* 登录遮罩键盘处理占位 */}

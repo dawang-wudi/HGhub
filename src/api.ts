@@ -13,6 +13,22 @@ export const isAndroid = /Android/i.test(ua);
 export const isMacos = /Macintosh|Mac OS X/i.test(ua);
 export const platform: "android" | "windows" | "macos" = isAndroid ? "android" : isMacos ? "macos" : "windows";
 
+/** iOS / iPadOS 判定。iPhone 的 UA 里带 `like Mac OS X`（所以 isMacos 也是 true），
+ *  iPadOS 13+ 更是直接把 UA 伪装成桌面 Safari，只能靠 maxTouchPoints 区分。 */
+export const isIOS = /iPad|iPhone|iPod/.test(ua) || (isMacos && (navigator.maxTouchPoints || 0) > 1);
+
+/** 是否走移动端布局（底部标签栏 + 抽屉导航）。只影响排版，不改 `platform` —— 
+ *  `LOCAL` 协议地址依赖 isMacos，iOS 必须继续走 `hg://localhost`。 */
+export const mobile = isAndroid || isIOS;
+
+/** 平台样式类名。移动端只有 android / ios 两套令牌；
+ *  iOS 的 `platform` 会被判成 macos，直接用会套上桌面 12px 边距 + 标题栏让位，内容缩一圈。 */
+export const platClass: "android" | "ios" | "windows" | "macos" =
+  mobile ? (isAndroid ? "android" : "ios") : platform;
+
+/** 给「HGhub x.y.z · xxx 客户端」这类文案用的平台名 */
+export const platLabel = mobile ? (isAndroid ? "Android" : "iOS") : platform === "macos" ? "macOS" : "Windows";
+
 /** 自定义协议地址随平台不同（见 tauri `register_asynchronous_uri_scheme_protocol` 文档）：
  *  Windows / Android → `http://<scheme>.localhost`
  *  macOS / iOS / Linux → `<scheme>://localhost`
@@ -84,6 +100,41 @@ export const api = {
   like: (id: number, ep: number, on: boolean) => call<unknown>("api_like", { id, ep, on }),
   collect: (id: number, on: boolean) => call<unknown>("api_collect", { id, on }),
   follow: (uid: number, on: boolean) => call<unknown>("api_follow", { uid, on }),
+
+  /* 线路（数据源）：固定线路写死在 Rust 侧，镜像线路按需从地址发布页拉取 */
+  lineState: () => call<LineState>("line_state"),
+  lineSet: (url: string) => call<string>("line_set", { url }),
+  lineMirrors: () => call<LineMirrors>("line_mirrors"),
+  lineProbe: (urls: string[]) => call<LineProbe[]>("line_probe", { urls }),
+
+  /* 更新检查：对比 GitHub Release 的 tag */
+  checkUpdate: () => call<UpdateInfo>("check_update"),
+  openUrl: (url: string) => call<void>("open_url", { url }),
+};
+
+/* ── 更新检查 ───────────────────────────────────────────── */
+
+export type UpdateInfo = {
+  current: string;
+  latest: string;
+  tag?: string;
+  has_update: boolean;
+  url: string;
+  name?: string;
+  published_at?: string;
+  notes?: string;
+};
+
+/* ── 线路（数据源） ─────────────────────────────────────── */
+
+export type LineItem = { name?: string; url: string; host?: string };
+export type LineState = { base: string; default: string; fixed: LineItem[] };
+export type LineMirrors = { source: string; script?: string; items: LineItem[] };
+export type LineProbe = { url: string; ok: boolean; status?: number; ms: number; error?: string };
+
+/** `https://a.b/c` → `a.b`（线路展示用） */
+export const hostOf = (url: string) => {
+  try { return new URL(url).host; } catch { return url.replace(/^https?:\/\//, "").replace(/\/.*$/, ""); }
 };
 
 /* ── 自检：验证 webview → 本地协议 → 上游 的取流链路 ───────── */

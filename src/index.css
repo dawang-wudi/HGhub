@@ -500,3 +500,63 @@ input[type="range"].hg-range::-webkit-slider-thumb { -webkit-appearance: none; w
 .article-body li { margin: 4px 0; }
 .article-body blockquote { margin: 10px 0; padding: 8px 12px; border-left: 3px solid var(--p-primary); background: rgba(255,255,255,.04); border-radius: 6px; }
 html.theme-light .article-body { color: rgba(20,24,30,.82); }
+
+/* ===================================================================
+   视频浮层 / 移动端底栏：固定「亮字压暗底」
+   —— 这些元素压在视频画面上，颜色不能跟主题走。
+   浅色主题下 --p-on 是近黑色，若文字用主题色（或依赖 /透明度 工具类
+   失效回退成继承色），整排文字会直接「消失」在画面里。
+   这里用不受主题影响的显式色，并显式给出 rgba 底色（不依赖 color-mix）。
+   =================================================================== */
+.hg-ink   { color: #fff; }
+.hg-ink-2 { color: rgba(255, 255, 255, .92); }
+.hg-ink-3 { color: rgba(255, 255, 255, .78); }
+.hg-ink-4 { color: rgba(255, 255, 255, .6); }
+.hg-gold  { color: #f3c969; }
+.hg-link  { color: #8fd0ff; }
+.hg-chip         { background: rgba(0, 0, 0, .45); color: #fff; }
+.hg-chip-strong  { background: rgba(0, 0, 0, .62); color: #fff; }
+.hg-chip:active  { background: rgba(0, 0, 0, .62); }
+.hg-ov-shadow    { text-shadow: 0 1px 8px rgba(0, 0, 0, .7); }
+
+/* 安卓 WebView 点按会留下系统黄色焦点框，视频/底栏这类沉浸按钮一律去掉 */
+.hg-tabbar button,
+.hg-player-ui button,
+.hg-chip,
+.hg-chip-strong { outline: none; -webkit-tap-highlight-color: transparent; }
+.hg-tabbar button:focus,
+.hg-tabbar button:focus-visible,
+.hg-player-ui button:focus,
+.hg-player-ui button:focus-visible { outline: none; }
+
+/* ===================================================================
+   iOS 平台令牌
+   —— 只补 win-main 的背景，圆角/控件半径沿用 :root（和 android 一致）。
+       ⚠️ iOS 的 UA 命中 `Mac OS X`，platform 会被判成 macos；App 里用的是
+       platClass（mobile → android / ios），所以这边绝不能出现 plat-macos 那套
+       「12px 边距 + 13px 圆角 + 标题栏让位」，否则内容比屏幕小一圈。
+   =================================================================== */
+.plat-ios .win-main { background: var(--p-bg); overflow: hidden; }
+
+/* ===================================================================
+   移动端左侧抽屉导航（抖音式：点三条杠滑出，点遮罩/菜单项收起）
+   z-index 50/51：压住播放器（20/30）与底栏（30），低于登录弹窗（55）与 toast（80）。
+   =================================================================== */
+@keyframes mdrawer-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes mfade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.mdrawer-backdrop {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(0, 0, 0, .5);
+  animation: mfade-in .18s ease;
+}
+
+.mdrawer {
+  position: fixed; top: 0; bottom: 0; left: 0; z-index: 51;
+  width: min(80vw, 300px);
+  display: flex; flex-direction: column;
+  background: var(--p-s1);
+  padding-top: calc(var(--sat, 0px) + 12px);
+  box-shadow: 16px 0 48px rgba(0, 0, 0, .55);
+  animation: mdrawer-in .22s cubic-bezier(.2, 0, 0, 1);
+}
