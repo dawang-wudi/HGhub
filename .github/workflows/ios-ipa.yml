@@ -87,7 +87,7 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
-      - name: Archive (unsigned)
+      - name: Build (unsigned, Release)
         run: |
           set -o pipefail
           PROJ=$(ls -d src-tauri/gen/apple/*.xcodeproj | head -1)
@@ -95,13 +95,18 @@ jobs:
           echo "PROJ=$PROJ"
           echo "SCHEME=$SCHEME"
           cd src-tauri/gen/apple
-          xcodebuild archive \
+          # 诊断：确认方案的归档/启动配置
+          find . -name '*.xcscheme' -print -exec grep -n 'buildConfiguration' {} \; || true
+          # 用 build 而不是 archive：archive 会走方案里配置的 Debug，
+          # 而 Debug 下 tauri 的 xcode-script 会去找 dev server 地址文件
+          # （com.hghub.huangguo-server-addr），CI 环境没有，必然 panic。
+          xcodebuild build \
             -project "$(basename "$PROJ")" \
             -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -archivePath "$PWD/build/HGhub.xcarchive" \
+            -derivedDataPath "$PWD/build" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -113,7 +118,7 @@ jobs:
         run: |
           set -euo pipefail
           cd src-tauri/gen/apple
-          APP=$(find build/HGhub.xcarchive/Products/Applications -maxdepth 1 -name '*.app' -print -quit)
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -print -quit)
           echo "APP=$APP"
           if [ -z "$APP" ]; then
             echo "::error::归档里找不到 .app"
