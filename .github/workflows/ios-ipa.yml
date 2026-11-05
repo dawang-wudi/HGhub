@@ -2,6 +2,10 @@ name: Build iOS IPA (unsigned)
 
 # 手动触发，或改动前端/Rust 源码时自动跑。
 # 产物是【未签名 IPA】，需要在本机用全能签 / Sideloadly 重签后才能安装。
+#
+# 实现说明：项目锁定的 @tauri-apps/cli 是 2.10.1，该版本没有 `ios build --no-sign`
+# （2.11+ 才加入）。这里改为 init 之后直接调 xcodebuild 做无签名归档，
+# 再按 Payload/ 结构手工封装 IPA，等价于 --no-sign 的效果。
 on:
   workflow_dispatch:
   push:
@@ -67,15 +71,61 @@ jobs:
       - name: Initialize iOS project
         run: pnpm tauri ios init --ci --skip-targets-install
 
-      - name: Build unsigned IPA
+      - name: Inspect generated Xcode project
+        run: |
+          echo "=== gen/apple tree ==="
+          ls -la src-tauri/gen/apple || true
+          PROJ=$(ls -d src-tauri/gen/apple/*.xcodeproj 2>/dev/null | head -1)
+          echo "PROJ=$PROJ"
+          if [ -n "$PROJ" ]; then
+            echo "=== schemes ==="
+            xcodebuild -project "$PROJ" -list -json 2>&1 | head -60
+          fi
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Archive (unsigned)
         run: |
           set -o pipefail
-          pnpm tauri ios build \
-            --no-sign \
-            --ci \
-            --target aarch64-apple-ios \
-            --config '{"build":{"beforeBuildCommand":"pnpm build"}}' \
-            2>&1 | tee "$RUNNER_TEMP/build.log"
+          PROJ=$(ls -d src-tauri/gen/apple/*.xcodeproj | head -1)
+          SCHEME=$(xcodebuild -project "$PROJ" -list -json | jq -r '.project.schemes[0]')
+          echo "PROJ=$PROJ"
+          echo "SCHEME=$SCHEME"
+          cd src-tauri/gen/apple
+          xcodebuild archive \
+            -project "$(basename "$PROJ")" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/HGhub.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            2>&1 | tee -a "$RUNNER_TEMP/build.log" | tail -80
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          cd src-tauri/gen/apple
+          APP=$(find build/HGhub.xcarchive/Products/Applications -maxdepth 1 -name '*.app' -print -quit)
+          echo "APP=$APP"
+          if [ -z "$APP" ]; then
+            echo "::error::归档里找不到 .app"
+            exit 1
+          fi
+          rm -rf pkg && mkdir -p pkg/Payload
+          cp -R "$APP" pkg/Payload/
+          cd pkg
+          zip -qry HGhub.ipa Payload
+          ls -lh HGhub.ipa
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp HGhub.ipa "$GITHUB_WORKSPACE/out/"
+          echo "=== IPA 内部结构 ==="
+          unzip -l HGhub.ipa | head -25
 
       - name: Collect artifacts
         if: always()
@@ -83,12 +133,7 @@ jobs:
           set -uo pipefail
           mkdir -p out
           cp "$RUNNER_TEMP/build.log" out/build.log 2>/dev/null || true
-          echo "=== IPA candidates ==="
-          find . -name '*.ipa' -not -path './node_modules/*' -print 2>/dev/null || true
           find . -name '*.ipa' -not -path './node_modules/*' -exec cp {} out/ \; 2>/dev/null || true
-          echo "=== xcarchive ==="
-          find . -name '*.xcarchive' -maxdepth 6 -print 2>/dev/null || true
-          echo "=== out/ ==="
           ls -lh out || true
           if ls out/*.ipa >/dev/null 2>&1; then
             echo "IPA_OK=true" >> "$GITHUB_ENV"
@@ -109,6 +154,6 @@ jobs:
         if: always()
         run: |
           if [ "${IPA_OK:-false}" != "true" ]; then
-            echo "::error::构建结束但没有产出 IPA，请看 artifact 里的 build.log"
+            echo "::error::没有产出 IPA，请看 artifact 里的 build.log"
             exit 1
           fi
