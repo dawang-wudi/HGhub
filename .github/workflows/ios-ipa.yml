@@ -83,7 +83,7 @@ jobs:
             --no-sign \
             --ci \
             --ignore-version-mismatches \
-            --target aarch64-apple-ios \
+            --target aarch64 \
             --config '{"build":{"beforeBuildCommand":"pnpm build"}}' \
             2>&1 | tee "$RUNNER_TEMP/build.log" | tail -80
 
