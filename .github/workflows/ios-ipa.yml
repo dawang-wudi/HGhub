@@ -1,0 +1,114 @@
+name: Build iOS IPA (unsigned)
+
+# 手动触发，或改动前端/Rust 源码时自动跑。
+# 产物是【未签名 IPA】，需要在本机用全能签 / Sideloadly 重签后才能安装。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "scripts/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "vite.config.ts"
+      - "tsconfig.json"
+      - ".github/workflows/ios-ipa.yml"
+
+concurrency:
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ios:
+    name: iOS (arm64, unsigned)
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ios-arm64
+
+      - name: Toolchain report
+        run: |
+          echo "node $(node -v)"
+          echo "pnpm $(pnpm -v)"
+          echo "rust $(rustc --version)"
+          xcodebuild -version
+          echo "developer dir: $(xcode-select -p)"
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Initialize iOS project
+        run: pnpm tauri ios init --ci --skip-targets-install
+
+      - name: Build unsigned IPA
+        run: |
+          set -o pipefail
+          pnpm tauri ios build \
+            --no-sign \
+            --ci \
+            --target aarch64-apple-ios \
+            --config '{"build":{"beforeBuildCommand":"pnpm build"}}' \
+            2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Collect artifacts
+        if: always()
+        run: |
+          set -uo pipefail
+          mkdir -p out
+          cp "$RUNNER_TEMP/build.log" out/build.log 2>/dev/null || true
+          echo "=== IPA candidates ==="
+          find . -name '*.ipa' -not -path './node_modules/*' -print 2>/dev/null || true
+          find . -name '*.ipa' -not -path './node_modules/*' -exec cp {} out/ \; 2>/dev/null || true
+          echo "=== xcarchive ==="
+          find . -name '*.xcarchive' -maxdepth 6 -print 2>/dev/null || true
+          echo "=== out/ ==="
+          ls -lh out || true
+          if ls out/*.ipa >/dev/null 2>&1; then
+            echo "IPA_OK=true" >> "$GITHUB_ENV"
+          else
+            echo "IPA_OK=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HGhub-ios-ipa
+          path: out/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Fail when no IPA was produced
+        if: always()
+        run: |
+          if [ "${IPA_OK:-false}" != "true" ]; then
+            echo "::error::构建结束但没有产出 IPA，请看 artifact 里的 build.log"
+            exit 1
+          fi
