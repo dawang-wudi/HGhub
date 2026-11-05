@@ -33,7 +33,9 @@ env:
 jobs:
   ios:
     name: iOS (arm64, unsigned)
-    runs-on: macos-14
+    # 必须 Xcode 16+：tauri ios init 生成的工程是 objectVersion 77 格式，
+    # macos-14 默认的 Xcode 15 打不开（future Xcode project file format）。
+    runs-on: macos-15
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -146,7 +148,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HGhub-ios-ipa
-          path: out/
+          path: |
+            out/
+            ${{ runner.temp }}/build.log
           if-no-files-found: warn
           retention-days: 14
 
